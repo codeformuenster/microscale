@@ -1,5 +1,9 @@
 
 ```bash
+$ docker build local/fabric .
+```
+
+```bash
 $ docker run \
   --volume "$SSH_AUTH_SOCK:/tmp/ssh.sock" \
   --env SSH_AUTH_SOCK=/tmp/ssh.sock \
@@ -8,6 +12,7 @@ $ docker run \
   --workdir /opt \
   local/fabric bash
 ```
+
 ```bash
 $ cd fabric
 $ fab --list
