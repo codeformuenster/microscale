@@ -1,6 +1,6 @@
 
 ```bash
-$ docker build local/fabric .
+$ docker -t build local/fabric .
 ```
 
 ```bash
