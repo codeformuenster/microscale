@@ -1,0 +1,2 @@
+FROM elasticsearch:1.7
+COPY config /usr/share/elasticsearch/config

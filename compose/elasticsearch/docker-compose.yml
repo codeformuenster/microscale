@@ -1,0 +1,26 @@
+
+# conf
+elasticsearchconf:
+  build: .
+  dockerfile: Dockerfile_config
+  command: /bin/true
+  volumes:
+    - /usr/share/elasticsearch/config
+
+# data
+elasticsearchdata:
+  # scratch? empty=scratch+/bin/true?
+  image: elasticsearch:1.7
+  command: /bin/true
+  volumes:
+    - /usr/share/elasticsearch/data
+
+# service
+elasticsearch:
+  image: elasticsearch:1.7
+  volumes_from:
+    - elasticsearchconf
+    - elasticsearchdata
+  ports:
+    - "9200:9200"
+  command: elasticsearch --http.cors.enabled=true
