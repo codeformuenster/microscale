@@ -1,0 +1,18 @@
+#!/bin/sh
+set -ex
+
+pull() {
+	registry_image="$1" local_image="$2" tags="$3"
+
+	docker pull ${registry_image}
+
+	for tag in ${tags}; do
+		docker tag -f ${registry_image} ${local_image}:${tag}
+	done
+}
+
+pull armhfbuild/docker:1.8 docker 1.8
+pull armhfbuild/docker:dind docker dind
+pull armhfbuild/debian:jessie debian "jessie 8 latest"
+pull armhfbuild/debian:wheezy debian "wheezy 7"
+pull armbuild/alpine:3.2 alpine 3.2
