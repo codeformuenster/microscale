@@ -1,21 +1,29 @@
 #!/usr/bin/env python2.7
 from fabric.api import run, env, task, cd, runs_once, execute, settings, shell_env, put, execute, roles
-import json
-from pandas.io.json import json_normalize, DataFrame
+import json, re
+# from pandas.io.json import json_normalize, DataFrame
 
-env.roledefs = {
-    'managers': [
-        'a3ecf088-26f3-406d-90c5-0ca92ee857d5.priv.cloud.scaleway.com'
-    ], # maybe three managers incl. consul?
-    'agents': [
-        'dd489ebf-6b49-4bd9-b294-5eba1a84e722.priv.cloud.scaleway.com'
-    ]
+host_ids = {
+    'manager1': 'a3ecf088-26f3-406d-90c5-0ca92ee857d5',
+    'agent1': 'dd489ebf-6b49-4bd9-b294-5eba1a84e722',
+    'agent2': 'c9fe8309-140e-4cb8-aa29-9d3793e2c88b'
 }
 
+env.roledefs = {
+    'all': ["{}.priv.cloud.scaleway.com".format(host_ids[name]) for name in host_ids],
+    'managers': ["{}.priv.cloud.scaleway.com".format(host_ids[name]) for name in host_ids if re.search('^manager\d', name)],
+    'agents': ["{}.priv.cloud.scaleway.com".format(host_ids[name]) for name in host_ids if re.search('^agent\d', name)],
+}
+for name, id in host_ids.items():
+    env.roledefs[name] = ["{}.priv.cloud.scaleway.com".format(id)]
 
-env.gateway = 'a3ecf088-26f3-406d-90c5-0ca92ee857d5.pub.cloud.scaleway.com'
+env.gateway = "{}.pub.cloud.scaleway.com".format(host_ids['manager1'])
+# env.gateway = 'a3ecf088-26f3-406d-90c5-0ca92ee857d5.pub.cloud.scaleway.com'
+
+print(env.gateway)
 env.forward_agent = True
 
+print(env.roledefs)
 
 # fab --parallel --hosts 212.47.253.68,212.47.235.218 \
 #   docker_build:"https://github.com/docker-library/java.git","armhfbuild","java","openjdk-8-jre","java:8-jre"
@@ -69,16 +77,16 @@ def docker_pull(image, tag=None):
 # resin/armv7hf-buildpack-deps:jessie-curl
 # resin/armv7hf-buildpack-deps:jessie-scm
 # docker tag resin/armv7hf-buildpack-deps:jessie-curl buildpack-deps:jessie-curl
+# debian:wheezy FIXME
 
 @task
-def docker_pull_resin_base_images():
+def docker_pull_base_images():
     base_images = ["debian:jessie", "buildpack-deps:jessie", "buildpack-deps:jessie-curl", "buildpack-deps:jessie-scm"]
     prefix = "resin/armv7hf-"
     with settings(parallel=True, warn_only=True):
         for image in base_images:
             run('docker pull '+prefix+image)
             run('docker tag -f '+prefix+image+' '+image)
-
     run('docker tag -f debian:jessie debian:latest')
 
     base_images = ["alpine:3.2"]
@@ -88,9 +96,24 @@ def docker_pull_resin_base_images():
             run('docker pull '+prefix+image)
             run('docker tag -f '+prefix+image+' '+image)
 
+    base_images = ["ubuntu:14.04"]
+    prefix = "armhfbuild/"
+    with settings(parallel=True, warn_only=True):
+        for image in base_images:
+            run('docker pull '+prefix+image)
+            run('docker tag -f '+prefix+image+' '+image)
+    run('docker tag -f ubuntu:14.04 ubuntu:latest')
+
+    base_images = ["ubuntu:14.04"]
+    prefix = "armv7/armhf-"
+    with settings(parallel=True, warn_only=True):
+        for image in base_images:
+            run('docker pull '+prefix+image)
+            # run('docker tag -f '+prefix+image+' '+image)
+
 @task
 def docker_pull_other_images():
-    base_images = ["golang:1.4", "golang:1.5", "swarm"]
+    base_images = ["golang:1.4", "golang:1.5", "swarm"] #..
     prefix = "armhfbuild/"
     with settings(parallel=True, warn_only=True):
         for image in base_images:
@@ -102,6 +125,7 @@ def docker_pull_other_images():
 @runs_once
 # def docker_build(git_repo, version_dir, tag, prefix=''):
 def docker_build(git_repo, target_docker_repo, tag, version, aliases=[]):
+    # version_in_subdir=True
     #
     # call docker-container?
     # with temp_dir or dind
@@ -140,6 +164,9 @@ def docker_push(image):
 # fab docker_build:"https://github.com/armhf-docker-library/docker-node.git","armhfbuild","node","4.1"
 # fab docker_build:"https://github.com/armhf-docker-library/golang.git","armhfbuild","golang","1.5"
 # fab docker_build:"https://github.com/armhf-docker-library/golang.git","armhfbuild","golang","1.4"
+
+# fab docker_build:"https://github.com/docker/docker.git","armhfbuild","docker","experimental"
+
 
 # fab -H 212.47.253.52 docker_pull:"armhfbuild/java:openjdk-8-jre","java:jre-8"
 # fab docker_build:"https://github.com/armhf-docker-library/elasticsearch.git","armhfbuild","elasticsearch","2.0"
@@ -180,6 +207,109 @@ def deploy_docker_swarm():
     with settings(warn_only=True):
         put('etc_default_docker', '/etc/default/docker')
 
+
+@task
+def build_docker_image(git_tag="master", experimental=True):
+    # https://github.com/docker/docker/tree/v1.8.2
+    with settings(warn_only=True):
+        # put('docker_config.json', '.docker/config.json', mode=0600)
+
+        run('mkdir -p /tmp/docker_build || true')
+        with cd('/tmp/docker_build'):
+            run('git clone -b {} --single-branch https://github.com/docker/docker.git .'.format(git_tag))
+            run('curl -SL -o Dockerfile https://raw.githubusercontent.com/umiddelb/armhf/master/Dockerfile.armv7')
+
+            env = "DOCKER_EXPERIMENTAL={}".format("1" if experimental else "0")
+            run('make build')
+            run('{} make binary'.format(env))
+
+            run('cp bundles /root/bundles --recursive')
+            # run('cp bundles/1.9.0-dev/binary/docker ~/docker-1.9.0-dev{}'format('-experimental' if experimental else ''))
+
+            # tag = 'master-experimental' if experimental else 'master'
+            # target = "{0}/{1}:{2}".format("armhfbuild","docker", git_tag)
+            # run('docker build -t {0} .'.format(target))
+            # run('docker push {0}'.format(target))
+            # run('docker tag -f {0} {1}'.format(target, "swarm:{}".format(git_tag)))
+
+            # tag='master', experimental=False
+            # $ docker tag docker-dev:master armhfbuild/docker-dev:master
+            # $ docker push armhfbuild/docker-dev:master
+
+
+        run('rm /tmp/docker_build -rf')
+
+
+@task
+def build_docker_weave(git_tag="master"):
+    print("FIXME does not work")
+    return
+    # https://github.com/docker/docker/tree/v1.8.2
+    with settings(warn_only=True):
+        # put('docker_config.json', '.docker/config.json', mode=0600)
+
+        run('mkdir -p /tmp/docker_build || true')
+        with cd('/tmp/docker_build'):
+            run('git clone -b {} --single-branch https://github.com/weaveworks/weave.git .'.format(git_tag))
+            run('docker build -t weaveworks/weave-build build')
+            run('docker run -v /var/run/docker.sock:/var/run/docker.sock weaveworks/weave-build https://github.com/weaveworks/weave.git')
+            # $ sudo docker run -v /var/run/docker.sock:/var/run/docker.sock weaveworks/weave-build -b <branch name> <repo URI>
+            # push
+
+            run('docker tag -f weaveworks/weave armhfbuild/weave')
+            run('docker push armhfbuild/weave')
+            run('docker tag -f weaveworks/weave armhfbuild/weavedns')
+            run('docker push armhfbuild/weavedns')
+            run('docker tag -f weaveworks/weave armhfbuild/weaveexec')
+            run('docker push armhfbuild/weaveexec')
+
+        run('rm /tmp/docker_build -rf')
+
+@task
+def build_docker_plugin_weave(git_tag="master"):
+    # https://github.com/docker/docker/tree/v1.8.2
+    with settings(warn_only=True):
+        # put('docker_config.json', '.docker/config.json', mode=0600)
+
+        run('mkdir -p /tmp/docker_build || true')
+        with cd('/tmp/docker_build'):
+            run('git clone -b {} --single-branch https://github.com/weaveworks/docker-plugin.git .'.format(git_tag))
+
+            run('curl -SL -o Dockerfile https://raw.githubusercontent.com/umiddelb/armhf/master/Dockerfile.armv7')
+
+            env = "DOCKER_EXPERIMENTAL={}".format("1" if experimental else "0")
+            run('make build')
+            run('{} make binary'.format(env))
+
+            run('cp bundles /root/bundles --recursive')
+            # run('cp bundles/1.9.0-dev/binary/docker ~/docker-1.9.0-dev{}'format('-experimental' if experimental else ''))
+
+            # tag = 'master-experimental' if experimental else 'master'
+            # target = "{0}/{1}:{2}".format("armhfbuild","docker", git_tag)
+            # run('docker build -t {0} .'.format(target))
+            # run('docker push {0}'.format(target))
+            # run('docker tag -f {0} {1}'.format(target, "swarm:{}".format(git_tag)))
+
+            # tag='master', experimental=False
+            # $ docker tag docker-dev:master armhfbuild/docker-dev:master
+            # $ docker push armhfbuild/docker-dev:master
+
+
+        run('rm /tmp/docker_build -rf')
+
+@task
+def build_calico(git_tag="master"):
+    with settings(warn_only=True):
+        # put('docker_config.json', '.docker/config.json', mode=0600)
+
+        run('mkdir -p /tmp/docker_build || true')
+        with cd('/tmp/docker_build'):
+            run('git clone -b {} --single-branch https://github.com/projectcalico/calico-docker.git .'.format(git_tag))
+            run('make node')
+            # calico/node:latest
+            run('make binary')
+
+        run('rm /tmp/docker_build -rf')
 
 # fab --roles managers swarm_create
 
@@ -322,8 +452,9 @@ def repair_and_clean():
 
 @task
 def get_load():
-    result = run('uptime',
-        shell=False, shell_escape=False, pty=False, quiet=True)
+    # result = run('uptime',
+    #     shell=False, shell_escape=False, pty=False, quiet=True)
+    result = run('uptime')
     print(result)
     print(result.command)
     print(result.real_command)
