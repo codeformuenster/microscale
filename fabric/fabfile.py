@@ -6,7 +6,8 @@ import json, re
 host_ids = {
     'manager1': 'a3ecf088-26f3-406d-90c5-0ca92ee857d5',
     'agent1': 'dd489ebf-6b49-4bd9-b294-5eba1a84e722',
-    'agent2': 'c9fe8309-140e-4cb8-aa29-9d3793e2c88b'
+    'agent2': 'c9fe8309-140e-4cb8-aa29-9d3793e2c88b',
+    'agent3': 'dddc47cc-2aa0-4f65-bacc-43cfe134e219'
 }
 
 env.roledefs = {
@@ -42,7 +43,7 @@ env.quiet=True
 
 # This is the user-facing task invoked on the command line.
 @task
-def deploy(lookup_param):
+def deploy_(lookup_param):
     # deploy manager
     # deploy agents
 
@@ -95,8 +96,9 @@ def docker_pull_base_images():
         for image in base_images:
             run('docker pull '+prefix+image)
             run('docker tag -f '+prefix+image+' '+image)
+    run('docker tag -f alpine:3.2 alpine:latest')
 
-    base_images = ["ubuntu:14.04"]
+    base_images = ["ubuntu:14.04", "docker:1.8", "docker:1.8-dind", "golang:1.4", "golang:1.5", "swarm"]
     prefix = "armhfbuild/"
     with settings(parallel=True, warn_only=True):
         for image in base_images:
@@ -113,12 +115,13 @@ def docker_pull_base_images():
 
 @task
 def docker_pull_other_images():
-    base_images = ["golang:1.4", "golang:1.5", "swarm"] #..
+    base_images = ["weave", "weaveexec", "weavediscovery"]
     prefix = "armhfbuild/"
+    prefix_then = "weaveworks"
     with settings(parallel=True, warn_only=True):
         for image in base_images:
             run('docker pull '+prefix+image)
-            run('docker tag -f '+prefix+image+' '+image)
+            run('docker tag -f '+prefix+image+' '+prefix_then+'/'+image)
 
 
 @task
@@ -210,6 +213,7 @@ def deploy_docker_swarm():
 
 @task
 def build_docker_image(git_tag="master", experimental=True):
+    # FIXME rename git_tag to branch
     # https://github.com/docker/docker/tree/v1.8.2
     with settings(warn_only=True):
         # put('docker_config.json', '.docker/config.json', mode=0600)
@@ -424,9 +428,19 @@ def deploy():
     # run('rm /tmp/curl -rf')
 
     # run('curl -SL git.io/weave -o /usr/local/bin/weave')
-    run('curl -SL git.io/rpi_weave -o /usr/local/bin/weave')
+    # run('curl -SL git.io/rpi_weave -o /usr/local/bin/weave')
+    run('curl -SL https://github.com/weaveworks/weave/raw/master/weave -o /usr/local/bin/weave')
     run('chmod a+x /usr/local/bin/weave')
-    run('weave setup')
+
+    run('curl -SL https://github.com/weaveworks/discovery/raw/master/discovery -o /usr/local/bin/weave-discovery')
+    run('chmod a+x /usr/local/bin/weave-discovery')
+
+    run('curl -SL https://github.com/armhf-docker-library/binaries/raw/master/docker-1.9.0-dev-experimental.tgz | tar -xvz -C /')
+    run('mv /usr/local/bin/docker /usr/bin/docker')
+    run('service docker restart')
+
+
+    # run('weave setup')
     # consul ?
     # confd ?
 
